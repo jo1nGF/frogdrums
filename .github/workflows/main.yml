@@ -17,13 +17,23 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Extract ZIP from repository root
+        shell: bash
         run: |
-          zip_file=$(find . -maxdepth 1 -type f -name '*.zip' -print -quit)
+          echo "Conteúdo inicial da raiz:"
+          ls -la "$GITHUB_WORKSPACE"
+
+          zip_file=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -iname '*.zip' -print -quit)
+
           if [ -z "$zip_file" ]; then
-            echo "Nenhum arquivo ZIP encontrado na raiz do repositório."
+            echo "Erro: nenhum arquivo .zip foi encontrado na raiz do repositório."
             exit 1
           fi
-          unzip -o "$zip_file" -d .
+
+          echo "Extraindo: $zip_file"
+          unzip -o "$zip_file" -d "$GITHUB_WORKSPACE"
+
+          echo "Conteúdo após a extração:"
+          ls -la "$GITHUB_WORKSPACE"
 
       - uses: actions/setup-java@v4
         with:
@@ -34,19 +44,35 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build debug + release APK
+      - name: Find Gradle project
+        shell: bash
         run: |
-          set +e
-          gradle assembleDebug assembleRelease --stacktrace
-          build_status=$?
-          find . -maxdepth 1 -type f -name '*.zip' -delete
-          exit "$build_status"
+          settings_file=$(find "$GITHUB_WORKSPACE" -type f \
+            \( -name 'settings.gradle' -o -name 'settings.gradle.kts' -o -name 'settings.gradle.dcl' \) \
+            -not -path '*/.gradle/*' -print -quit)
+
+          if [ -z "$settings_file" ]; then
+            echo "Erro: settings.gradle não foi encontrado após a extração."
+            exit 1
+          fi
+
+          project_dir=$(dirname "$settings_file")
+          echo "PROJECT_DIR=$project_dir" >> "$GITHUB_ENV"
+          echo "Projeto Gradle encontrado em: $project_dir"
+
+      - name: Build debug + release APK
+        run: gradle assembleDebug assembleRelease --stacktrace
+        working-directory: ${{ env.PROJECT_DIR }}
+
+      - name: Remove ZIP
+        if: always()
+        run: find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -iname '*.zip' -delete
 
       - name: Rename APKs
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/BullfrogDrums-debug.apk
-          cp app/build/outputs/apk/release/app-release.apk dist/BullfrogDrums-release.apk
+          cp "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" dist/BullfrogDrums-debug.apk
+          cp "$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk" dist/BullfrogDrums-release.apk
 
       - uses: actions/upload-artifact@v4
         with:
