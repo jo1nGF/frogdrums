@@ -1,0 +1,60 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract ZIP from repository root
+        run: |
+          zip_file=$(find . -maxdepth 1 -type f -name '*.zip' -print -quit)
+          if [ -z "$zip_file" ]; then
+            echo "Nenhum arquivo ZIP encontrado na raiz do repositório."
+            exit 1
+          fi
+          unzip -o "$zip_file" -d .
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build debug + release APK
+        run: |
+          set +e
+          gradle assembleDebug assembleRelease --stacktrace
+          build_status=$?
+          find . -maxdepth 1 -type f -name '*.zip' -delete
+          exit "$build_status"
+
+      - name: Rename APKs
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/BullfrogDrums-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk dist/BullfrogDrums-release.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BullfrogDrums-apk
+          path: dist/*.apk
+
+      - name: Publish GitHub Release (tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
